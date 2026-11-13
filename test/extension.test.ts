@@ -290,7 +290,7 @@ test("Pi SDK loads the isolated package without starting a model request", async
     agentDir: agent,
     settingsManager: SettingsManager.inMemory({}),
     noExtensions: true,
-    additionalExtensionPaths: [join(import.meta.dirname, "../src/index.ts")],
+    additionalExtensionPaths: [join(import.meta.dirname, "..")],
     disabledBuiltinExtensions: ["mcp"],
     noSkills: true,
     noPromptTemplates: true,
@@ -300,6 +300,7 @@ test("Pi SDK loads the isolated package without starting a model request", async
   await loader.reload();
   const loaded = loader.getExtensions();
   assert.deepEqual(loaded.errors, []);
+  assert.deepEqual(loaded.warnings ?? [], []);
   assert.equal(loaded.extensions.length, 1);
   assert.equal(loaded.extensions[0].tools.size, 2);
 });
