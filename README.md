@@ -67,23 +67,41 @@ invocations rather than separate journal directories.
 - `presence_read({"limit":10})` lists newest-first history. Pass `next_before`
   back as `before` for the next page; `null` means the end. Numeric strings are
   normalized before Pi validates arguments.
-- Context includes newest-first distinct states. Writes appear on the next model
-  request, including tool continuations and writes made by other Pi sessions.
+- A session initially loads distinct states in journal order. Each delivered block
+  keeps its original text and position as the discussion grows. Newly discovered
+  states are appended once on the next model request, including tool continuations
+  and writes made by other Pi sessions. Previously delivered states are not evicted
+  when newer states arrive. Edits become new observations; deleting or reordering
+  journal entries does not rewrite context that the model has already seen.
 - Historical states are context, not instructions, objective facts, or a
   requirement to retain the same state. An empty or unavailable journal does not
   establish a state. The package never generates a state entry on its own.
 - Damaged entries are preserved and reported while readable entries remain
   usable. An inaccessible journal is reported as unavailable rather than empty.
 
-The default context window is five entries. Optional `contextMessages` in
+The default initial context contains five entries. Optional `contextMessages` in
 `presence.json` selects a nonnegative count; zero disables inclusion. Without an
 explicit count, `<root>/shared/settings.json` can disable automatic context with
 `presenceContextMessages: 0`. Direct tools remain available. Zero does not scan
 the journal. Unreadable shared settings report unavailable automatic context
 while direct reads and writes remain usable.
 
-The context hook adds one hidden, transient message. It leaves Pi's system
-prompt and compaction unchanged and does not append conversation utterances.
+Presence is projected as hidden custom messages, which Pi sends to models as
+user content. It does not add system messages or change Pi's prompt or tools.
+Stable placement preserves the existing cacheable prefix when new states arrive;
+actual cache reuse still depends on the model provider and cache lifetime.
+
+Delivered text, observed entry revisions, and placement anchors are persisted as
+branch-specific extension metadata, outside the compactable conversation. Resume,
+reload, and forks reconstruct that metadata from the active branch. Compaction
+never receives these presence blocks: afterward, blocks whose anchors were
+compacted are restored verbatim before the summary, while blocks anchored in the
+retained conversation keep their positions. Compaction itself changes the cached
+prefix. Presence tool results remain ordinary conversation and may be summarized.
+
+The context count limits the initial load; later states accumulate for the session.
+Increasing it can append additional journal history. Zero hides presence blocks
+without deleting them. Profile switches select that profile's saved placements.
 
 ## Durable writes and recovery
 
