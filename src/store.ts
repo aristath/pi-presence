@@ -196,6 +196,20 @@ export async function history(
     }
     return b.id < a.id ? -1 : b.id > a.id ? 1 : 0;
   });
+  try {
+    const order = JSON.parse(await readFile(join(path, ".presence-order.json"), "utf8"));
+    if (!Array.isArray(order) || order.some(id => typeof id !== "string" || !validId.test(id)))
+      throw new Error("Invalid presence order");
+    const positions = new Map(order.map((id: string, index: number) => [id, index]));
+    // Newly written entries stay at the front. Existing entries retain the
+    // operator's order without rewriting their historical timestamps.
+    entries.sort((a, b) => {
+      const x = positions.get(a.id), y = positions.get(b.id);
+      return x === undefined ? y === undefined ? 0 : -1 : y === undefined ? 1 : x - y;
+    });
+  } catch (error) {
+    if (!missing(error)) warnings.push("Saved presence order is unreadable; chronological order is shown. The order file was preserved.");
+  }
   return { entries, warnings };
 }
 export function unique(entries: Entry[]) {

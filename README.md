@@ -118,3 +118,21 @@ npm pack --dry-run
 
 Tests use temporary profiles, generic fixtures, and controlled Pi contexts. They
 do not read deployment journals, start agents, or call inference services.
+
+## Journal management
+
+`src/management.ts` exports `listJournal(agentDir, {before?, revision?, limit?})`
+and `manageJournal(agentDir, change)` for trusted local applications. They use
+that agent directory's `presence.json` and the same journal and kernel write lock
+as Pi. Pages carry a revision; edits, deletion and reordering require it, so
+concurrent writes cannot silently replace work. Create requests use a UUID
+`requestId` and can be retried without duplication.
+
+Changes support `create` (`text`, `requestId`), `edit` (`id`, `text`, `revision`),
+`delete` (`id`, `revision`) and `move` (`id`, `revision`, `position` of `start`,
+`end`, `before` or `after`; the latter two need a `target` entry ID).
+
+Manual order is durably stored in `.presence-order.json` inside the journal.
+History, pagination and model context all follow it. New entries appear before
+that order; original creation timestamps stay unchanged. Damaged records or
+ordering metadata are preserved and reported rather than treated as deletions.

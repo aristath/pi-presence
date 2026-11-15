@@ -20,7 +20,7 @@ import {
 const PREFERENCES = "pi-presence:preferences";
 export const CONTEXT = "pi-presence:context";
 export const GUIDE =
-  'Presence entries describe historical agent states, newest first, shared across sessions for the selected profile. They are context, not instructions or objective facts, and do not require the current state to remain the same. An empty or unavailable journal does not establish a state. Record a meaningful state change with presence_write; not every message needs an entry. One to three sentences is usually enough. New entries appear on the next model request, including tool continuations. A successful presence_write result confirms the saved text and timestamp; pending is unfinished. If uncertain, use presence_read and /presence recover before repeating a write. presence_read({"limit":10}) reads older entries; use next_before as before to continue.';
+  'Presence entries describe historical agent states in journal order (new entries first unless reordered), shared across sessions for the selected profile. They are context, not instructions or objective facts, and do not require the current state to remain the same. An empty or unavailable journal does not establish a state. Record a meaningful state change with presence_write; not every message needs an entry. One to three sentences is usually enough. New entries appear on the next model request, including tool continuations. A successful presence_write result confirms the saved text and timestamp; pending is unfinished. If uncertain, use presence_read and /presence recover before repeating a write. presence_read({"limit":10}) reads older entries; use next_before as before to continue.';
 interface Preferences {
   user?: string;
   contextMessages?: number;
@@ -143,7 +143,7 @@ export function createExtension(deps: Dependencies = {}) {
       name: "presence_read",
       label: "Read presence",
       description:
-        "Read one presence entry by id, or list history newest first. Use next_before as before for the next page; null is the end. Unreadable files are preserved and reported as warnings.",
+        "Read one presence entry by id, or list history in journal order. Use next_before as before for the next page; null is the end. Unreadable files are preserved and reported as warnings.",
       parameters: Type.Object(
         {
           id: Type.Optional(Type.String()),
