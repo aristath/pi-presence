@@ -90,6 +90,9 @@ Presence is projected as hidden custom messages, which Pi sends to models as
 user content. It does not add system messages or change Pi's prompt or tools.
 Stable placement preserves the existing cacheable prefix when new states arrive;
 actual cache reuse still depends on the model provider and cache lifetime.
+Automatic context caches the journal in memory. Local writes, directory changes,
+and filesystem notifications trigger a refresh; unchanged requests do not scan
+entry files. Direct reads remain fresh, and session shutdown closes the watcher.
 
 Delivered text, observed entry revisions, and placement anchors are persisted as
 branch-specific extension metadata, outside the compactable conversation. Resume,

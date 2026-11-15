@@ -39,7 +39,12 @@ async function fixture() {
       commands.set(name, command),
     on: (name: string, handler: any) => handlers.set(name, handler),
     appendEntry: (customType: string, data: unknown) =>
-      state.branch.push({ type: "custom", customType, data }),
+      state.branch.push({
+        id: `entry-${state.branch.length + 1}`,
+        type: "custom",
+        customType,
+        data,
+      }),
   };
   const ctx = {
     get signal() {
@@ -51,6 +56,7 @@ async function fixture() {
     },
     sessionManager: {
       getSessionId: () => state.session,
+      getLeafId: () => state.branch.at(-1)?.id ?? null,
       getBranch: () => state.branch,
     },
   } as unknown as ExtensionContext;
@@ -213,6 +219,128 @@ test("other sessions’ writes appear on the next model request", async () => {
   const next = await f.event("context_with_system", { messages: [] });
   assert.match(visible(next), /A shift from another session/);
 });
+
+test("unchanged requests reuse journal history and retain the exact model prefix", async () => {
+  const f = await fixture();
+  await f.service.write(f.config, "Initial saved state", "initial");
+  const history = f.service.history.bind(f.service);
+  let reads = 0;
+  f.service.history = async (...args) => {
+    reads++;
+    return history(...args);
+  };
+  const head = { role: "system", content: "Pi prompt", timestamp: 1 };
+  const firstInput = { role: "user", content: "First question", timestamp: 2 };
+  const first = await f.event("context_with_system", {
+    messages: [head, firstInput],
+  });
+  const nextInput = { role: "user", content: "Next question", timestamp: 3 };
+  const second = await f.event("context_with_system", {
+    messages: [head, firstInput, nextInput],
+  });
+  assert.equal(reads, 1);
+  assert.deepEqual(
+    second.messages.slice(0, first.messages.length),
+    first.messages,
+  );
+  assert.equal(f.state.branch.length, 1);
+  const other = new PresenceService(f.agent);
+  await other.write(f.config, "State from another session", "external");
+  const third = await f.event("context_with_system", {
+    messages: [head, firstInput, nextInput],
+  });
+  assert.equal(reads, 2);
+  assert.deepEqual(
+    third.messages.slice(0, second.messages.length),
+    second.messages,
+  );
+  const fourth = await f.event("context_with_system", {
+    messages: third.messages,
+  });
+  assert.deepEqual(fourth.messages, third.messages);
+  assert.equal(f.state.branch.length, 2);
+  await f.tools
+    .get("presence_read")
+    .execute("read", { limit: 10 }, undefined, undefined, f.ctx);
+  assert.equal(reads, 3);
+  await f.event("session_shutdown");
+});
+
+test("reload warms history once and resumes persisted placements without another delivery", async () => {
+  const f = await fixture();
+  await f.service.write(f.config, "Saved before reload", "initial");
+  const input = { role: "user", content: "Question", timestamp: 1 };
+  const first = await f.event("context_with_system", { messages: [input] });
+  f.state.branch = JSON.parse(JSON.stringify(f.state.branch));
+  await f.event("session_shutdown");
+  createExtension({ agentDir: f.agent, service: f.service })(
+    f.pi as unknown as ExtensionAPI,
+  );
+  const history = f.service.history.bind(f.service);
+  let reads = 0;
+  f.service.history = async (...args) => {
+    reads++;
+    return history(...args);
+  };
+  await f.event("session_start");
+  const resumed = await f.event("context_with_system", { messages: [input] });
+  assert.deepEqual(resumed.messages, first.messages);
+  assert.equal(f.state.branch.length, 1);
+  assert.equal(reads, 1);
+  await f.event("session_shutdown");
+});
+
+test("a presence write appends after its tool result and stays there on later requests", async () => {
+  const f = await fixture();
+  await f.service.write(f.config, "Initial state", "initial");
+  const question = { role: "user", content: "Continue", timestamp: 1 };
+  const first = await f.event("context_with_system", { messages: [question] });
+  const saved = await f.tools
+    .get("presence_write")
+    .execute("write", { text: "A changed state" }, undefined, undefined, f.ctx);
+  const assistant = {
+    role: "assistant",
+    timestamp: 2,
+    content: [
+      {
+        type: "toolCall",
+        id: "write",
+        name: "presence_write",
+        arguments: { text: "A changed state" },
+      },
+    ],
+  };
+  const receipt = {
+    role: "toolResult",
+    timestamp: 3,
+    toolCallId: "write",
+    toolName: "presence_write",
+    content: saved.content,
+    isError: false,
+  };
+  const second = await f.event("context_with_system", {
+    messages: [question, assistant, receipt],
+  });
+  assert.deepEqual(
+    second.messages.slice(0, first.messages.length),
+    first.messages,
+  );
+  assert.equal(
+    second.messages.indexOf(receipt) + 1,
+    second.messages.length - 1,
+  );
+  assert.match(String(second.messages.at(-1).content), /A changed state/);
+  const next = { role: "user", content: "Another question", timestamp: 4 };
+  const third = await f.event("context_with_system", {
+    messages: [question, assistant, receipt, next],
+  });
+  assert.deepEqual(
+    third.messages.slice(0, second.messages.length),
+    second.messages,
+  );
+  assert.equal(f.state.branch.length, 2);
+  await f.event("session_shutdown");
+});
 test("configuration preserves existing foreground defaults and the shared zero switch", async () => {
   const f = await fixture();
   await writeFile(
@@ -287,6 +415,44 @@ test("late history cannot enter a switched session", async () => {
     warnings: [],
   });
   assert.equal(await pending, undefined);
+});
+
+test("late history cannot append delivery metadata to another branch of the same session", async () => {
+  const f = await fixture();
+  let finish!: (value: any) => void;
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.service.history = async () => {
+    started();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  const pending = f.event("context_with_system", { messages: [] });
+  await ready;
+  f.state.branch = [
+    {
+      id: "different-leaf",
+      type: "custom",
+      customType: "another-extension",
+      data: {},
+    },
+  ];
+  finish({
+    entries: [
+      {
+        id: hash("old"),
+        created_at: new Date(0).toISOString(),
+        text: "State from the old branch",
+      },
+    ],
+    warnings: [],
+  });
+  assert.equal(await pending, undefined);
+  assert.equal(f.state.branch.length, 1);
+  await f.event("session_shutdown");
 });
 test("Pi SDK loads the isolated package without starting a model request", async () => {
   const { DefaultResourceLoader, SettingsManager } = await import(

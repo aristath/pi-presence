@@ -6,6 +6,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { PresenceService, loadConfig, type Config } from "./service.ts";
+import { HistoryCache } from "./history-cache.ts";
 import {
   deliveries,
   prepareDelivery,
@@ -75,6 +76,9 @@ export function createExtension(deps: Dependencies = {}) {
   return function presence(pi: ExtensionAPI) {
     const agentDir = deps.agentDir ?? getAgentDir();
     const service = deps.service ?? new PresenceService(agentDir);
+    const contextHistory = new HistoryCache((selected, signal) =>
+      service.history(selected, signal),
+    );
     let recovery: Promise<string[]> | undefined;
     let recoveryScope = "";
     async function config(ctx: ExtensionContext): Promise<Config> {
@@ -137,8 +141,10 @@ export function createExtension(deps: Dependencies = {}) {
             invocation,
             signal,
           );
+          contextHistory.invalidate();
           return result(reply, reply.error);
         } catch (error) {
+          contextHistory.invalidate();
           return result(
             { pending: !signal?.aborted, invocation },
             (error as Error).message,
@@ -191,13 +197,18 @@ export function createExtension(deps: Dependencies = {}) {
       },
     });
     pi.on("session_start", async (_event, ctx) => {
+      contextHistory.close();
       recovery = undefined;
       try {
-        await recover(ctx, await config(ctx));
+        const selected = await config(ctx);
+        await recover(ctx, selected);
+        if (selected.contextMessages > 0 && !selected.contextError)
+          await contextHistory.read(selected, ctx.signal);
       } catch (error) {
         warn(ctx, error);
       }
     });
+    pi.on("session_shutdown", () => contextHistory.close());
     pi.on("before_agent_start", async (_event, ctx) => {
       try {
         const selected = await config(ctx);
@@ -213,6 +224,7 @@ export function createExtension(deps: Dependencies = {}) {
     pi.on("context_with_system", async (event, ctx) => {
       const messages = withoutPresence(event.messages);
       const session = ctx.sessionManager.getSessionId();
+      const leaf = ctx.sessionManager.getLeafId();
       let found: History | undefined;
       let scope: string | undefined;
       try {
@@ -240,7 +252,7 @@ export function createExtension(deps: Dependencies = {}) {
         const previous = deliveries(ctx.sessionManager.getBranch(), scope);
         if (!selected.contextError) {
           try {
-            found = await service.history(selected, ctx.signal);
+            found = await contextHistory.read(selected, ctx.signal);
           } catch (error) {
             if (ctx.signal?.aborted) return;
             warn(ctx, error);
@@ -248,7 +260,8 @@ export function createExtension(deps: Dependencies = {}) {
         }
         if (
           ctx.signal?.aborted ||
-          ctx.sessionManager.getSessionId() !== session
+          ctx.sessionManager.getSessionId() !== session ||
+          ctx.sessionManager.getLeafId() !== leaf
         )
           return;
         const now = await config(ctx);
