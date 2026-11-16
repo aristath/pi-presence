@@ -14,7 +14,7 @@ const revision = (found: History) => hash(JSON.stringify(found));
 export async function listJournal(agentDir: string, args: { before?: string; revision?: string; limit?: number } = {}) {
   const config = await loadConfig(agentDir);
   let found: History = { entries: [], warnings: [] };
-  try { found = await history(await locate(config.root, config.user, config.defaultUser, false, config.agentUser)); }
+  try { found = await history(await locate(config.root, config.user, config.defaultUser, false, config.agentUser, config.directory)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const current = revision(found);
   if (args.revision && current !== args.revision) fail('Presence changed. Refresh the list to continue; your draft is retained.', 409);
@@ -33,7 +33,7 @@ export interface Change { action: string; revision?: string; id?: string; text?:
 export async function applyChange(agentDir: string, input: Change, lockedGuard?: Guard) {
   if (!input || !['create', 'edit', 'delete', 'move'].includes(input.action)) fail('Choose a supported presence action.');
   const config = await loadConfig(agentDir);
-  const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser);
+  const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser, config.directory);
   const guard = await bind(path);
   if (lockedGuard) {
     await checkGuard(lockedGuard);
@@ -70,7 +70,7 @@ export async function applyChange(agentDir: string, input: Change, lockedGuard?:
 }
 export async function manageJournal(agentDir: string, input: Change) {
   const config = await loadConfig(agentDir);
-  const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser);
+  const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser, config.directory);
   const lockPath = join(path, '.pi-presence.lock');
   const lock = await open(lockPath, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try { if (!(await lock.stat()).isFile()) throw new Error('Presence lock must be a regular file.'); } finally { await lock.close(); }

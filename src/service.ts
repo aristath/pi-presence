@@ -20,6 +20,7 @@ import {
 } from "./store.ts";
 
 export interface Config {
+  directory?: string;
   root: string;
   user: string;
   defaultUser: string;
@@ -101,6 +102,7 @@ export async function loadConfig(agentDir: string): Promise<Config> {
     contextMessages = 5;
   }
   return {
+    ...(typeof value.directory === "string" ? { directory: expand(value.directory, agentDir) } : {}),
     root,
     user,
     defaultUser,
@@ -270,7 +272,7 @@ export class PresenceService {
           config.root,
           config.user,
           config.defaultUser,
-          config.agentUser,
+          config.agentUser, config.directory
         ),
       ),
     );
@@ -299,7 +301,7 @@ export class PresenceService {
         config.user,
         config.defaultUser,
         true,
-        config.agentUser,
+        config.agentUser, config.directory
       );
       intent = await retain(path, {
         invocation,
@@ -313,7 +315,7 @@ export class PresenceService {
       config.user,
       config.defaultUser,
       false,
-      config.agentUser,
+      config.agentUser, config.directory
     );
     if (intent.guard.path !== target)
       throw new Error(
@@ -365,7 +367,7 @@ export class PresenceService {
           config.user,
           config.defaultUser,
           false,
-          config.agentUser,
+          config.agentUser, config.directory
         );
         if (intent.guard.path !== target)
           throw new Error(
@@ -390,7 +392,7 @@ export class PresenceService {
           config.user,
           config.defaultUser,
           false,
-          config.agentUser,
+          config.agentUser, config.directory
         ),
         signal,
       );

@@ -55,7 +55,9 @@ export function directory(
   user: string,
   defaultUser: string,
   agentUser = "agent",
+  journalDirectory?: string,
 ) {
+  if (journalDirectory) return resolve(journalDirectory);
   return join(
     resolve(root),
     "users",
@@ -82,8 +84,10 @@ export async function locate(
   defaultUser: string,
   create = false,
   agentUser = "agent",
+  journalDirectory?: string,
 ): Promise<string> {
-  root = resolve(root);
+  const components = journalDirectory ? [resolve(journalDirectory).split('/').at(-1)!] : ["users", owner(user, defaultUser, agentUser), "presence"];
+  root = journalDirectory ? dirname(resolve(journalDirectory)) : resolve(root);
   if (create) {
     await mkdir(root, { recursive: true, mode: 0o700 });
     await syncDirectory(root);
@@ -91,11 +95,7 @@ export async function locate(
   }
   const canonical = await realpath(root);
   let path = canonical;
-  for (const component of [
-    "users",
-    owner(user, defaultUser, agentUser),
-    "presence",
-  ]) {
+  for (const component of components) {
     path = join(path, component);
     if (create) {
       try {

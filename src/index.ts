@@ -83,7 +83,8 @@ export function createExtension(deps: Dependencies = {}) {
     let recoveryScope = "";
     async function config(ctx: ExtensionContext): Promise<Config> {
       const pref = preferences(ctx);
-      const loaded = { ...(await loadConfig(agentDir)), ...pref };
+      const base = await loadConfig(agentDir);
+      const loaded = { ...base, ...pref, ...(base.directory ? { user: base.user } : {}) };
       if (pref.contextMessages !== undefined) delete loaded.contextError;
       owner(loaded.user, loaded.defaultUser, loaded.agentUser);
       return loaded;
@@ -98,7 +99,7 @@ export function createExtension(deps: Dependencies = {}) {
         selected.root,
         selected.user,
         selected.defaultUser,
-        selected.agentUser,
+        selected.agentUser, selected.directory
       );
       if (!recovery || scope !== recoveryScope) {
         recoveryScope = scope;
@@ -177,7 +178,7 @@ export function createExtension(deps: Dependencies = {}) {
                 selected.user,
                 selected.defaultUser,
                 false,
-                selected.agentUser,
+                selected.agentUser, selected.directory
               ),
               args.id,
             );
@@ -233,7 +234,7 @@ export function createExtension(deps: Dependencies = {}) {
           selected.root,
           selected.user,
           selected.defaultUser,
-          selected.agentUser,
+          selected.agentUser, selected.directory
         );
         if (selected.contextMessages === 0)
           return {
@@ -267,7 +268,7 @@ export function createExtension(deps: Dependencies = {}) {
         const now = await config(ctx);
         if (
           scope !==
-            directory(now.root, now.user, now.defaultUser, now.agentUser) ||
+            directory(now.root, now.user, now.defaultUser, now.agentUser, now.directory) ||
           selected.contextMessages !== now.contextMessages ||
           selected.contextError !== now.contextError
         )
@@ -302,6 +303,8 @@ export function createExtension(deps: Dependencies = {}) {
           if (command === "user") {
             const user = normalizeUser(args[0] ?? "");
             if (!user) throw new Error("Use /presence user <user-id>.");
+            const base = await loadConfig(agentDir);
+            if (base.directory && user !== base.user) throw new Error("This journal belongs to the current profile.");
             pi.appendEntry(PREFERENCES, { user });
             recovery = undefined;
           } else if (command === "context") {
@@ -321,7 +324,7 @@ export function createExtension(deps: Dependencies = {}) {
             );
           const selected = await config(ctx);
           ctx.ui.notify(
-            `Presence journal: ${directory(selected.root, selected.user, selected.defaultUser, selected.agentUser)}\nContext entries: ${selected.contextMessages}\nConfiguration: ${join(agentDir, "presence.json")}`,
+            `Presence journal: ${directory(selected.root, selected.user, selected.defaultUser, selected.agentUser, selected.directory)}\nContext entries: ${selected.contextMessages}\nConfiguration: ${join(agentDir, "presence.json")}`,
             "info",
           );
         } catch (error) {
