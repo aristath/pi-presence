@@ -6,13 +6,14 @@ import { open, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { loadConfig } from './service.ts';
+import { loadConfig, type Config } from './service.ts';
 import { bind, checkGuard, hash, history, listPage, locate, owner, publish, syncDirectory, type History, type Guard, unique } from './store.ts';
 
 function fail(message: string, status = 400): never { throw Object.assign(new Error(message), { status }); }
 const revision = (found: History) => hash(JSON.stringify(found));
-export async function listJournal(agentDir: string, args: { before?: string; revision?: string; limit?: number } = {}) {
-  const config = await loadConfig(agentDir);
+export async function listJournal(agentDir: string, args: { before?: string; revision?: string; limit?: number; cwd?: string; validateConfig?: (config: Config) => void | Promise<void> } = {}) {
+  const config = await loadConfig(agentDir, args.cwd);
+  await args.validateConfig?.(config);
   let found: History = { entries: [], warnings: [] };
   try { found = await history(await locate(config.root, config.user, config.defaultUser, false, config.agentUser, config.directory)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
@@ -30,9 +31,9 @@ async function atomic(path: string, data: string) {
   } finally { await unlink(temporary).catch(() => {}); }
 }
 export interface Change { action: string; revision?: string; id?: string; text?: string; requestId?: string; target?: string; position?: string }
-export async function applyChange(agentDir: string, input: Change, lockedGuard?: Guard) {
+export async function applyChange(agentDir: string, input: Change, lockedGuard?: Guard, cwd = process.cwd(), selectedConfig?: Config) {
   if (!input || !['create', 'edit', 'delete', 'move'].includes(input.action)) fail('Choose a supported presence action.');
-  const config = await loadConfig(agentDir);
+  const config = selectedConfig ?? await loadConfig(agentDir, cwd);
   const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser, config.directory);
   const guard = await bind(path);
   if (lockedGuard) {
@@ -68,15 +69,16 @@ export async function applyChange(agentDir: string, input: Change, lockedGuard?:
   }
   return { saved: true };
 }
-export async function manageJournal(agentDir: string, input: Change) {
-  const config = await loadConfig(agentDir);
+export async function manageJournal(agentDir: string, input: Change, cwd = process.cwd(), validateConfig?: (config: Config) => void | Promise<void>) {
+  const config = await loadConfig(agentDir, cwd);
+  await validateConfig?.(config);
   const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser, config.directory);
   const lockPath = join(path, '.pi-presence.lock');
   const lock = await open(lockPath, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try { if (!(await lock.stat()).isFile()) throw new Error('Presence lock must be a regular file.'); } finally { await lock.close(); }
   const guard = await bind(path);
   return new Promise((resolve, reject) => {
-    const child = spawn('flock', ['--exclusive', '--wait', '15', lockPath, process.execPath, '--experimental-strip-types', fileURLToPath(new URL('./management-worker.ts', import.meta.url))], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('flock', ['--exclusive', '--wait', '15', lockPath, process.execPath, '--experimental-strip-types', fileURLToPath(new URL('./management-worker.ts', import.meta.url))], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', errorText = '';
     child.stdout.on('data', chunk => { output += chunk; });
     child.stderr.on('data', chunk => { errorText = (errorText + chunk).slice(-4096); });
@@ -85,6 +87,6 @@ export async function manageJournal(agentDir: string, input: Change) {
       try { const value = JSON.parse(output); if (value.error) reject(Object.assign(new Error(value.error), { status: value.status })); else if (code === 0) resolve(value); else reject(new Error('Presence save could not be confirmed. Refresh before retrying.')); }
       catch { reject(new Error('Presence save could not be confirmed. Refresh before retrying. ' + errorText)); }
     });
-    child.stdin.end(JSON.stringify({ agentDir, input, guard }));
+    child.stdin.end(JSON.stringify({ agentDir, input, guard, config }));
   });
 }

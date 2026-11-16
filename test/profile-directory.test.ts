@@ -13,13 +13,13 @@ test('configured profile directories isolate both Pi and management journal oper
   const agents: string[] = [];
   for (const user of ['first', 'second']) {
     const agent = join(root, user, '.pi'); await mkdir(agent, { recursive: true }); agents.push(agent);
-    await writeFile(join(agent, 'presence.json'), JSON.stringify({ root, user, defaultUser: user, directory: join(root, user, 'presence'), contextMessages: 5 }));
+    await writeFile(join(agent, "settings.json"), JSON.stringify({ presence: { root, user, defaultUser: user, directory: join(root, user, 'presence'), contextMessages: 5 } }));
   }
   const accepted: any = await manageJournal(agents[0]!, { action: 'create', text: 'A private inner state', requestId: randomUUID() });
   assert.equal((await listJournal(agents[0]!)).total, 1);
   assert.equal((await listJournal(agents[1]!)).total, 0);
   const first = new PresenceService(agents[0]!);
-  assert.equal((await first.history(await loadConfig(agents[0]!))).entries[0]?.text, 'A private inner state');
+  assert.equal((await first.history(await loadConfig(agents[0]!, agents[0]!))).entries[0]?.text, 'A private inner state');
   await assert.rejects(manageJournal(agents[1]!, { action: 'edit', id: accepted.entry.id, text: 'Other profile', requestId: 'foreign' }));
   assert.ok((await readdir(join(root, 'first', 'presence'))).length > 0);
 });

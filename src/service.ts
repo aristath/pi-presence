@@ -1,3 +1,4 @@
+import { SettingsManager } from '@earendil-works/pi-coding-agent';
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, link, unlink } from "node:fs/promises";
@@ -49,16 +50,9 @@ const expand = (path: string, base: string) =>
   );
 const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
-export async function loadConfig(agentDir: string): Promise<Config> {
-  const file = join(agentDir, "presence.json");
-  let value: any;
-  try {
-    value = JSON.parse(await readFile(file, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Configure Presence in ${file}: ${(error as Error).message}`,
-    );
-  }
+export async function loadConfig(agentDir: string, cwd = process.cwd(), settings?: Record<string, any>): Promise<Config> {
+  const file = join(cwd, ".pi", "settings.json");
+  const value = (settings ?? SettingsManager.create(cwd, agentDir, { projectTrusted: true }).getSettings() as any).presence;
   if (typeof value?.user !== "string")
     throw new Error(`${file} needs a user ID.`);
   const user = normalizeUser(value.user);
@@ -73,36 +67,17 @@ export async function loadConfig(agentDir: string): Promise<Config> {
   const defaultUser = normalizeUser(value.defaultUser ?? user);
   owner(user, defaultUser, agentUser);
   const root = expand(
-    typeof value.root === "string" ? value.root : join(agentDir, "pi-presence"),
-    agentDir,
+    typeof value.root === "string" ? value.root : cwd,
+    cwd,
   );
-  let contextMessages = 5;
+  let contextMessages = Number(value.contextMessages ?? 5);
   let contextError: string | undefined;
-  if (value.contextMessages !== undefined)
-    contextMessages = Number(value.contextMessages);
-  else {
-    // Read only the journal's shared context switch, leaving other settings alone.
-    try {
-      const settings = JSON.parse(
-        await readFile(join(root, "shared/settings.json"), "utf8"),
-      );
-      if (
-        settings.presenceContextMessages != null &&
-        Number(settings.presenceContextMessages) === 0
-      )
-        contextMessages = 0;
-    } catch (error) {
-      if (!missing(error))
-        contextError =
-          "Presence settings are unavailable; their enabled state is unknown.";
-    }
-  }
   if (!Number.isSafeInteger(contextMessages) || contextMessages < 0) {
     contextError = "contextMessages must be a nonnegative integer.";
     contextMessages = 5;
   }
   return {
-    ...(typeof value.directory === "string" ? { directory: expand(value.directory, agentDir) } : {}),
+    ...(typeof value.directory === "string" ? { directory: expand(value.directory, cwd) } : {}),
     root,
     user,
     defaultUser,

@@ -13,20 +13,22 @@ npm install
 pi install /absolute/path/to/pi-presence
 ```
 
-Create `<Pi agent directory>/presence.json`, normally `~/.pi/agent/presence.json`:
+Add `presence` to the project’s `.pi/settings.json` (or Pi’s global `settings.json` for shared defaults):
 
 ```json
 {
-  "root": "./pi-presence",
-  "user": "user-1",
-  "defaultUser": "user-1",
-  "agentUser": "agent"
+  "presence": {
+    "root": "./pi-presence",
+    "user": "user-1",
+    "defaultUser": "user-1",
+    "agentUser": "agent"
+  }
 }
 ```
 
-The default root is `<Pi agent directory>/pi-presence`. Relative roots resolve
-against the Pi agent directory; `~` expands to the home directory. Set `root` to
-an existing data directory to keep its layout and entries unchanged.
+The default root is the session working directory. Relative paths resolve against
+that directory; `~` expands to the home directory. Set `directory` to use a
+specific journal folder, or `root` to use the layout below.
 
 `user` selects a profile. Optional `agentUser` defaults to `agent`; selecting
 that alias uses the journal belonging to `defaultUser`. The default owner
@@ -79,12 +81,10 @@ invocations rather than separate journal directories.
 - Damaged entries are preserved and reported while readable entries remain
   usable. An inaccessible journal is reported as unavailable rather than empty.
 
-The default initial context contains five entries. Optional `contextMessages` in
-`presence.json` selects a nonnegative count; zero disables inclusion. Without an
-explicit count, `<root>/shared/settings.json` can disable automatic context with
-`presenceContextMessages: 0`. Direct tools remain available. Zero does not scan
-the journal. Unreadable shared settings report unavailable automatic context
-while direct reads and writes remain usable.
+The default initial context contains five entries. `presence.contextMessages`
+selects a nonnegative count; zero disables inclusion without scanning the journal.
+Direct tools remain available. Invalid context counts report unavailable automatic
+context while direct reads and writes remain usable.
 
 Presence is projected as hidden custom messages, which Pi sends to models as
 user content. It does not add system messages or change Pi's prompt or tools.
@@ -144,7 +144,7 @@ do not read deployment journals, start agents, or call inference services.
 
 `src/management.ts` exports `listJournal(agentDir, {before?, revision?, limit?})`
 and `manageJournal(agentDir, change)` for trusted local applications. They use
-that agent directory's `presence.json` and the same journal and kernel write lock
+the session's merged `presence` settings and the same journal and kernel write lock
 as Pi. Pages carry a revision; edits, deletion and reordering require it, so
 concurrent writes cannot silently replace work. Create requests use a UUID
 `requestId` and can be retried without duplication.

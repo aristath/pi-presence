@@ -13,7 +13,7 @@ async function fixture(t: any) {
   t.after(() => rm(base, { recursive: true, force: true }));
   const agent = join(base, 'agent'); await mkdir(agent);
   const config = { root: join(base, 'journal'), user: 'person', defaultUser: 'person', contextMessages: 2 };
-  await writeFile(join(agent, 'presence.json'), JSON.stringify(config));
+  await writeFile(join(agent, "settings.json"), JSON.stringify({ presence: config }));
   const add = (text: string, requestId = randomUUID()) => manageJournal(agent, { action: 'create', text, requestId }) as Promise<any>;
   return { base, agent, config, add };
 }
