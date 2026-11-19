@@ -11,8 +11,8 @@ import { bind, checkGuard, hash, history, listPage, locate, owner, publish, sync
 
 function fail(message: string, status = 400): never { throw Object.assign(new Error(message), { status }); }
 const revision = (found: History) => hash(JSON.stringify(found));
-export async function listJournal(agentDir: string, args: { before?: string; revision?: string; limit?: number; cwd?: string; validateConfig?: (config: Config) => void | Promise<void> } = {}) {
-  const config = await loadConfig(agentDir, args.cwd);
+export async function listJournal(agentDir: string, args: { before?: string; revision?: string; limit?: number; cwd?: string; settings?: Record<string, any>; validateConfig?: (config: Config) => void | Promise<void> } = {}) {
+  const config = await loadConfig(agentDir, args.cwd, args.settings);
   await args.validateConfig?.(config);
   let found: History = { entries: [], warnings: [] };
   try { found = await history(await locate(config.root, config.user, config.defaultUser, false, config.agentUser, config.directory)); }
@@ -69,8 +69,8 @@ export async function applyChange(agentDir: string, input: Change, lockedGuard?:
   }
   return { saved: true };
 }
-export async function manageJournal(agentDir: string, input: Change, cwd = process.cwd(), validateConfig?: (config: Config) => void | Promise<void>) {
-  const config = await loadConfig(agentDir, cwd);
+export async function manageJournal(agentDir: string, input: Change, cwd = process.cwd(), validateConfig?: (config: Config) => void | Promise<void>, settings?: Record<string, any>) {
+  const config = await loadConfig(agentDir, cwd, settings);
   await validateConfig?.(config);
   const path = await locate(config.root, config.user, config.defaultUser, true, config.agentUser, config.directory);
   const lockPath = join(path, '.pi-presence.lock');

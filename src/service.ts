@@ -1,4 +1,3 @@
-import { SettingsManager } from '@earendil-works/pi-coding-agent';
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, link, unlink } from "node:fs/promises";
@@ -52,7 +51,7 @@ const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
 export async function loadConfig(agentDir: string, cwd = process.cwd(), settings?: Record<string, any>): Promise<Config> {
   const file = join(cwd, ".pi", "settings.json");
-  const value = (settings ?? SettingsManager.create(cwd, agentDir, { projectTrusted: true }).getSettings() as any).presence;
+  const value = (settings ?? (await import('@earendil-works/pi-coding-agent')).SettingsManager.create(cwd, agentDir, { projectTrusted: true }).getSettings() as any).presence;
   if (typeof value?.user !== "string")
     throw new Error(`${file} needs a user ID.`);
   const user = normalizeUser(value.user);
