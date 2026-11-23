@@ -83,7 +83,7 @@ export function createExtension(deps: Dependencies = {}) {
     let recoveryScope = "";
     async function config(ctx: ExtensionContext): Promise<Config> {
       const pref = preferences(ctx);
-      const base = await loadConfig(agentDir, ctx.cwd, pi.getSettings());
+      const base = await loadConfig(agentDir, ctx.cwd, pi.getSettings() as Record<string, unknown>);
       const loaded = { ...base, ...pref, ...(base.directory ? { user: base.user } : {}) };
       if (pref.contextMessages !== undefined) delete loaded.contextError;
       owner(loaded.user, loaded.defaultUser, loaded.agentUser);
@@ -303,7 +303,7 @@ export function createExtension(deps: Dependencies = {}) {
           if (command === "user") {
             const user = normalizeUser(args[0] ?? "");
             if (!user) throw new Error("Use /presence user <user-id>.");
-            const base = await loadConfig(agentDir, ctx.cwd, pi.getSettings());
+            const base = await loadConfig(agentDir, ctx.cwd, pi.getSettings() as Record<string, unknown>);
             if (base.directory && user !== base.user) throw new Error("This journal belongs to the current profile.");
             pi.appendEntry(PREFERENCES, { user });
             recovery = undefined;

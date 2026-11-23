@@ -28,6 +28,9 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "check": "npm run typecheck && npm test"
   },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
@@ -35,6 +38,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.5.2",
     "@types/node": "^25.6.0",
+    "@types/proper-lockfile": "^4.1.4",
     "typescript": "^6.0.3",
     "typebox": "1.3.27"
   }

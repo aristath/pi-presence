@@ -6,7 +6,7 @@ agent, service, or memory package is required.
 
 ## Install
 
-Requires Linux, Node 22.18+, Pi 1.5.2+, and `flock` from util-linux.
+Requires Linux, Node 22.18+, and Pi 1.5.2+.
 
 ```sh
 npm install
@@ -114,8 +114,9 @@ with owner-only permissions is retained under `<agentDir>/pi-presence/pending/`
 before publication. Startup and `/presence recover` retry it with its original
 directory binding. Accepted results remain authoritative if queue cleanup fails.
 
-Pi writers serialize through an OS-owned lock that releases after a process
-crash. The journal contains `.pi-presence.lock` and may briefly contain temporary
+Pi writers serialize through an advisory lock directory (`.pi-presence.lock`,
+the same mechanism Pi uses for settings and auth); a crashed holder's lock goes
+stale and is reclaimed. The journal may briefly contain temporary
 publication files; neither is a journal entry. Other applications retain their
 own coordination. Files remain non-overwriting, and context suppresses matching states.
 
@@ -144,7 +145,7 @@ do not read deployment journals, start agents, or call inference services.
 
 `src/management.ts` exports `listJournal(agentDir, {before?, revision?, limit?})`
 and `manageJournal(agentDir, change)` for trusted local applications. They use
-the session's merged `presence` settings and the same journal and kernel write lock
+the session's merged `presence` settings and the same journal and write lock
 as Pi. Pages carry a revision; edits, deletion and reordering require it, so
 concurrent writes cannot silently replace work. Create requests use a UUID
 `requestId` and can be retried without duplication.

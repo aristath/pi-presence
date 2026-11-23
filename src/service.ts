@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
-import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, link, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import lockfile from "proper-lockfile";
 import {
   bind,
   checkGuard,
@@ -14,6 +12,7 @@ import {
   locate,
   normalizeUser,
   owner,
+  publish,
   syncDirectory,
   type Entry,
   type Intent,
@@ -49,9 +48,18 @@ const expand = (path: string, base: string) =>
   );
 const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
-export async function loadConfig(agentDir: string, cwd = process.cwd(), settings?: Record<string, any>): Promise<Config> {
+export interface PresencePreferences {
+  user?: string;
+  defaultUser?: string;
+  agentUser?: string;
+  root?: string;
+  directory?: string;
+  contextMessages?: number;
+}
+export async function loadConfig(agentDir: string, cwd = process.cwd(), settings?: Record<string, unknown>): Promise<Config> {
   const file = join(cwd, ".pi", "settings.json");
-  const value = (settings ?? (await import('@earendil-works/pi-coding-agent')).SettingsManager.create(cwd, agentDir, { projectTrusted: true }).getSettings() as any).presence;
+  const document = settings ?? (await import('@earendil-works/pi-coding-agent')).SettingsManager.create(cwd, agentDir, { projectTrusted: true }).getSettings() as Record<string, unknown>;
+  const value = document.presence as PresencePreferences | undefined;
   if (typeof value?.user !== "string")
     throw new Error(`${file} needs a user ID.`);
   const user = normalizeUser(value.user);
@@ -127,107 +135,32 @@ async function retain(path: string, intent: Intent): Promise<Intent> {
     await unlink(temporary).catch(() => {});
   }
 }
+// Writers serialize on an advisory lock directory (`.pi-presence.lock`) that
+// Pi itself uses for settings/auth (proper-lockfile). A crashed holder's lock
+// goes stale and is reclaimed; publication stays atomic and non-overwriting.
+export const journalLock = (path: string) =>
+  lockfile.lock(join(path, ".pi-presence"), {
+    stale: 15000,
+    update: 5000,
+    realpath: false,
+    retries: { retries: 10, factor: 1.2, minTimeout: 50, maxTimeout: 1000 },
+  });
 export const writeLocked: Writer = async (intent, signal) => {
   signal?.throwIfAborted();
   await checkGuard(intent.guard);
-  const lockPath = join(intent.guard.path, ".pi-presence.lock");
-  const lock = await open(
-    lockPath,
-    constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW,
-    0o600,
-  );
+  const release = await journalLock(intent.guard.path);
   try {
-    if (!(await lock.stat()).isFile())
-      throw new Error("Presence write lock must be a regular file.");
-  } finally {
-    await lock.close();
-  }
-  const worker = fileURLToPath(new URL("./worker.ts", import.meta.url));
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "flock",
-      [
-        "--exclusive",
-        lockPath,
-        process.execPath,
-        "--experimental-strip-types",
-        worker,
-      ],
-      { detached: true, stdio: ["pipe", "pipe", "pipe"] },
-    );
-    const output: Buffer[] = [];
-    let bytes = 0;
-    let stderr = "";
-    let failure: Error | undefined;
-    let force: ReturnType<typeof setTimeout> | undefined;
-    const stop = (error: Error) => {
-      failure ??= error;
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGTERM");
-      } catch {}
-      force ??= setTimeout(() => {
-        try {
-          if (child.pid) process.kill(-child.pid, "SIGKILL");
-        } catch {}
-      }, 2000);
-      force.unref();
+    signal?.throwIfAborted();
+    const entry = await publish(intent);
+    return { entry };
+  } catch (error) {
+    return {
+      error: (error as Error).message,
+      pending: !signal?.aborted,
     };
-    const abort = () =>
-      stop(
-        signal?.reason instanceof Error
-          ? signal.reason
-          : new Error(
-              "Presence write cancelled; inspect its retained request before repeating.",
-            ),
-      );
-    signal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(
-      () =>
-        stop(
-          new Error(
-            "Presence write did not complete; its original request is retained.",
-          ),
-        ),
-      60000,
-    );
-    child.stdout.on("data", (chunk: Buffer) => {
-      bytes += chunk.length;
-      if (bytes > 64 * 1024 * 1024)
-        stop(
-          new Error(
-            "Presence reply exceeded 64 MiB; original request retained.",
-          ),
-        );
-      else output.push(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr = (stderr + chunk).slice(-8192);
-    });
-    child.stdin.on("error", () => {});
-    child.on("error", (error) => {
-      failure = error;
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (force) clearTimeout(force);
-      signal?.removeEventListener("abort", abort);
-      try {
-        const result = JSON.parse(Buffer.concat(output).toString("utf8"));
-        if (code === 0 && (result.entry || typeof result.error === "string")) {
-          resolve(result);
-          return;
-        }
-      } catch {}
-      reject(
-        failure ??
-          new Error(
-            `Presence write worker exited ${code}: ${stderr || "no complete response"}. Linux flock is required.`,
-          ),
-      );
-    });
-    child.stdin.end(JSON.stringify(intent));
-    if (signal?.aborted) abort();
-  });
+  } finally {
+    await release();
+  }
 };
 export class PresenceService {
   readonly agentDir: string;
